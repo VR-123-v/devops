@@ -1,98 +1,78 @@
 pipeline {
     agent any
 
-
-       tools {
+    tools {
         maven 'maven3'
     }
 
-    stages {
-      stage('checkout') {
-            steps {
-                echo 'Cloning GIT HUB Repo '
-				git branch: 'main', url: 'https://github.com/VR-123-v/devops.git'
-            }  
-        }
-		
-		
-		
-	 stage('sonar') {
-            steps {
-                echo 'scanning project'
-                sh 'ls -ltr'
-                
-                sh ''' mvn sonar:sonar \\
-                      -Dsonar.host.url=http://54.86.79.102:9000 \\
-                      -Dsonar.login=squ_377b3d687fdc09734fc24fec1bad2b130662bc12'''
-            }
-    	}
-		
-		
-		
-        stage('Build Artifact') {
-            steps {
-                echo 'Build Artifact'
-				sh 'mvn clean package'
-            }
-        }
-		
-		
-		
-        stage('Docker Image') {
-            steps {
-                echo 'Docker Image building'
-				sh 'docker build -t udemy03/devops123:${BUILD_NUMBER} .'
-            }
-        }
-		
-		
-       stage('Push to Dockerhub') {
-            steps {
-			 script {
-			withCredentials([string(credentialsId: 'dockerhub', variable: 'dockerhub')]) 
-			{
-            sh 'docker login -u udemy03 -p ${dockerhub}'
-			
-			 }
-			   sh 'docker push udemy03/devops123:${BUILD_NUMBER}'
-			   
-           
-				}
-				
-            }
-        }
-		
-		
-    stage('Update Deployment File') {
-		
-		 environment {
-            GIT_REPO_NAME = "devops"
-            GIT_USER_NAME = "VR-123-v"
-        }
-		
-            steps {
-                echo 'Update Deployment File'
-				withCredentials([string(credentialsId: 'githubtoken', variable: 'githubtoken')]) 
-				{
-                  sh '''
-                    git config user.email "gorekarmadhu@gmail.com"
-                    git config user.name "VR-123-v"
-                    BUILD_NUMBER=${BUILD_NUMBER}
-                    sed -i "s/udemy03\/devops123:XYZ/udemy03\/devops123:${BUILD_NUMBER}/g" deploymentfiles/deployment.yml
-                    git add .
-                    
-                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
-
-                    git push https://${githubtoken}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
-                '''
-				  
-                 }
-				
-            }
-        }
-		
-		
-			
+    environment {
+        GIT_REPO_NAME   = "devops"
+        GIT_USER_NAME   = "VR-123-v"
+        DOCKER_IMAGE    = "udemy03/devops123"
+        SONAR_URL       = "http://54.86.79.102:9000"
+        SONAR_TOKEN     = "squ_377b3d687fdc09734fc24fec1bad2b130662bc12"
     }
 
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo 'Cloning GitHub Repository'
+                git branch: 'main', url: "https://github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git"
+            }
+        }
+
+        stage('SonarQube Scan') {
+            steps {
+                echo 'Running SonarQube Scan'
+                sh """
+                    mvn sonar:sonar \
+                        -Dsonar.host.url=${SONAR_URL} \
+                        -Dsonar.login=${SONAR_TOKEN}
+                """
+            }
+        }
+
+        stage('Build Artifact') {
+            steps {
+                echo 'Building Maven Artifact (.war)'
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building Docker Image'
+                sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} ."
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                echo 'Logging in to Docker Hub and pushing image'
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh 'docker login -u $DOCKER_USER -p $DOCKER_PASS'
+                    }
+                    sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                }
+            }
+        }
+
+        stage('Update Deployment YAML') {
+            steps {
+                echo 'Updating Kubernetes Deployment YAML with new image tag'
+                withCredentials([string(credentialsId: 'githubtoken', variable: 'GITHUB_TOKEN')]) {
+                    sh """
+                        git config user.email "gorekarmadhu@gmail.com"
+                        git config user.name "${GIT_USER_NAME}"
+                        sed -i 's|${DOCKER_IMAGE}:.*|${DOCKER_IMAGE}:${BUILD_NUMBER}|g' deploymentfiles/deployment.yml
+                        git add deploymentfiles/deployment.yml
+                        git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
+                        git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                    """
+                }
+            }
+        }
+    }
 }
