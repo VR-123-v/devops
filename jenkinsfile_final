@@ -1,0 +1,98 @@
+pipeline {
+    agent any
+
+
+       tools {
+        maven 'maven3'
+    }
+
+    stages {
+      stage('checkout') {
+            steps {
+                echo 'Cloning GIT HUB Repo '
+				git branch: 'main', url: 'https://github.com/VR-123-v/devops.git'
+            }  
+        }
+		
+		
+		
+	 stage('sonar') {
+            steps {
+                echo 'scanning project'
+                sh 'ls -ltr'
+                
+                sh ''' mvn sonar:sonar \\
+                      -Dsonar.host.url=http://54.86.79.102:9000 \\
+                      -Dsonar.login=squ_377b3d687fdc09734fc24fec1bad2b130662bc12'''
+            }
+    	}
+		
+		
+		
+        stage('Build Artifact') {
+            steps {
+                echo 'Build Artifact'
+				sh 'mvn clean package'
+            }
+        }
+		
+		
+		
+        stage('Docker Image') {
+            steps {
+                echo 'Docker Image building'
+				sh 'docker build -t udemy03/devops123:${BUILD_NUMBER} .'
+            }
+        }
+		
+		
+       stage('Push to Dockerhub') {
+            steps {
+			 script {
+			withCredentials([string(credentialsId: 'dockerhub', variable: 'dockerhub')]) 
+			{
+            sh 'docker login -u udemy03 -p ${dockerhub}'
+			
+			 }
+			   sh 'docker push udemy03/devops123:${BUILD_NUMBER}'
+			   
+           
+				}
+				
+            }
+        }
+		
+		
+    stage('Update Deployment File') {
+		
+		 environment {
+            GIT_REPO_NAME = "devops"
+            GIT_USER_NAME = "VR-123-v"
+        }
+		
+            steps {
+                echo 'Update Deployment File'
+				withCredentials([string(credentialsId: 'githubtoken', variable: 'githubtoken')]) 
+				{
+                  sh '''
+                    git config user.email "gorekarmadhu@gmail.com"
+                    git config user.name "VR-123-v"
+                    BUILD_NUMBER=${BUILD_NUMBER}
+                    sed -i "s/udemy03\/devops123:XYZ/udemy03\/devops123:${BUILD_NUMBER}/g" deploymentfiles/deployment.yml
+                    git add .
+                    
+                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+
+                    git push https://${githubtoken}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                '''
+				  
+                 }
+				
+            }
+        }
+		
+		
+			
+    }
+
+}
