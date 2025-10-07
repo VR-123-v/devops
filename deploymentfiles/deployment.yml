@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: mc-app
-        image: udemy03/devops123:5
+        image: udemy03/devops123:8
         ports:
         - containerPort: 8080
 
